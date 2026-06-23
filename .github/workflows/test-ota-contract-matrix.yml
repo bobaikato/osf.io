@@ -34,7 +34,7 @@ on:
       ota_ref:
         description: Exact Ota git revision to build for this matrix run
         required: false
-        default: 9d3eb5803adcdcb3b62f6fe4203f2abd2df0d40b
+        default: 042d5892c2ee7eb4a79bf4f5609bf6470bcf79f4
   pull_request:
     paths:
       - 'ota.yaml'
@@ -87,10 +87,10 @@ jobs:
           node-version: '24'
 
       - name: Install ota from source
-        uses: ota-run/ota/.github/actions/install-ota-from-source@9d3eb5803adcdcb3b62f6fe4203f2abd2df0d40b
+        uses: ota-run/ota/.github/actions/install-ota-from-source@042d5892c2ee7eb4a79bf4f5609bf6470bcf79f4
         with:
           repository: ${{ github.event.inputs.ota_repository || 'ota-run/ota' }}
-          ref: ${{ github.event.inputs.ota_ref || '9d3eb5803adcdcb3b62f6fe4203f2abd2df0d40b' }}
+          ref: ${{ github.event.inputs.ota_ref || '042d5892c2ee7eb4a79bf4f5609bf6470bcf79f4' }}
 
       - name: Verify ota install revision
         shell: bash
