@@ -1,0 +1,215 @@
+# <!--
+#                 █████
+#                ░░███
+#        ██████  ███████    ██████
+#       ███░░███░░░███░    ░░░░░███
+#      ░███ ░███  ░███      ███████
+#      ░███ ░███  ░███ ███ ███░░███
+#      ░░██████   ░░█████ ░░████████
+#       ░░░░░░     ░░░░░   ░░░░░░░░
+#
+#    Copyright (C) 2026 — 2026, Ota. All Rights Reserved.
+#
+#    DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+#
+#    Licensed under the Apache License, Version 2.0. See LICENSE for the full license text.
+#    You may not use this file except in compliance with that License.
+#    Unless required by applicable law or agreed to in writing, software distributed under the
+#    License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+#    either express or implied. See the License for the specific language governing permissions
+#    and limitations under the License.
+#
+#    If you need additional information or have any questions, please email: os@ota.run
+# -->
+
+name: 'Test: Ota contract matrix'
+
+on:
+  workflow_dispatch:
+    inputs:
+      ota_repository:
+        description: Ota source repository to build for this matrix run
+        required: false
+        default: ota-run/ota
+      ota_ref:
+        description: Exact Ota git revision to build for this matrix run
+        required: false
+        default: aea083c434a3a267b8c567ee39ed54d7f8bd9608
+  pull_request:
+    paths:
+      - 'ota.yaml'
+      - '.gitignore'
+      - '.github/workflows/test-ota-contract-matrix.yml'
+  push:
+    paths:
+      - 'ota.yaml'
+      - '.gitignore'
+      - '.github/workflows/test-ota-contract-matrix.yml'
+
+concurrency:
+  group: ota-contract-matrix-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  OTA_NO_UPDATE_CHECK: '1'
+
+jobs:
+  contract:
+    name: Ota Contract Matrix (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu-runtime
+            os: ubuntu-latest
+            full_proof: true
+          - name: macos-contract
+            os: macos-latest
+            full_proof: false
+          - name: windows-contract
+            os: windows-latest
+            full_proof: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Install ota from source
+        uses: ota-run/ota/.github/actions/install-ota-from-source@aea083c434a3a267b8c567ee39ed54d7f8bd9608
+        with:
+          repository: ${{ github.event.inputs.ota_repository || 'ota-run/ota' }}
+          ref: ${{ github.event.inputs.ota_ref || 'aea083c434a3a267b8c567ee39ed54d7f8bd9608' }}
+
+      - name: Verify ota install revision
+        shell: bash
+        run: ota --version
+
+      - name: Validate contract
+        shell: bash
+        run: |
+          mkdir -p .ota/ci
+          ota validate --json . > .ota/ci/validate.json
+          ota validate .
+
+      - name: Doctor contract
+        shell: bash
+        run: |
+          set +e
+          ota doctor --workflow local-postgres --json . > .ota/ci/doctor.json
+          status=$?
+          set -e
+          STATUS="$status" FULL_PROOF="${{ matrix.full_proof }}" node - <<'JS'
+          const fs = require('fs');
+          const report = JSON.parse(fs.readFileSync('.ota/ci/doctor.json', 'utf8'));
+          const status = Number.parseInt(process.env.STATUS || '0', 10);
+          const fullProof = process.env.FULL_PROOF === 'true';
+          if (fullProof && status !== 0) {
+            console.error(JSON.stringify(report, null, 2));
+            process.exit(1);
+          }
+          if (!fullProof && status !== 0) {
+            const code = report.summary?.primary_blocker?.code || '';
+            if (code !== 'OTA_TOOL_MISSING') {
+              console.error(JSON.stringify(report, null, 2));
+              process.exit(1);
+            }
+          }
+          JS
+          if [ "${{ matrix.full_proof }}" = "true" ]; then
+            ota doctor --workflow local-postgres .
+          fi
+
+      - name: List task and workflow surfaces
+        shell: bash
+        run: |
+          ota tasks --use .
+          ota tasks --safe --use .
+          ota tasks --workflow local-postgres .
+          ota workflows .
+
+      - name: Export execution topology
+        shell: bash
+        run: |
+          if ota execution topology --help > /dev/null 2>&1; then
+            ota execution topology --json . > .ota/ci/execution-topology.json
+          else
+            printf '%s\n' '{"ok":false,"skipped":true,"reason":"ota execution topology is unavailable in this build"}' > .ota/ci/execution-topology.json
+          fi
+
+      - name: Dry-run public task surface
+        shell: bash
+        run: |
+          ota tasks --json . > .ota/ci/tasks.json
+          node - <<'JS' > .ota/ci/task-names.txt
+          const fs = require('fs');
+          const tasks = JSON.parse(fs.readFileSync('.ota/ci/tasks.json', 'utf8')).tasks || [];
+          for (const task of tasks) {
+            if (task.internal) continue;
+            console.log(task.name);
+          }
+          JS
+          while IFS= read -r task; do
+            [ -z "$task" ] && continue
+            slug="$(printf '%s' "$task" | tr ':/' '__')"
+            set +e
+            ota run "$task" --dry-run --json . > ".ota/ci/run-${slug}.json"
+            status=$?
+            set -e
+            STATUS="$status" REPORT_PATH=".ota/ci/run-${slug}.json" node - <<'JS'
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync(process.env.REPORT_PATH, 'utf8'));
+            const status = Number.parseInt(process.env.STATUS || '0', 10);
+            if (![0, 1].includes(status) || report.dry_run !== true || report.ok == null) {
+              console.error(JSON.stringify({ status, report }, null, 2));
+              process.exit(1);
+            }
+            JS
+          done < .ota/ci/task-names.txt
+
+      - name: Dry-run workflow
+        shell: bash
+        run: |
+          set +e
+          ota up --workflow local-postgres --dry-run --json . > .ota/ci/up-local-postgres-dry-run.json
+          status=$?
+          set -e
+          STATUS="$status" node - <<'JS'
+          const fs = require('fs');
+          const report = JSON.parse(fs.readFileSync('.ota/ci/up-local-postgres-dry-run.json', 'utf8'));
+          const status = Number.parseInt(process.env.STATUS || '0', 10);
+          if (![0, 1].includes(status) || report.dry_run !== true || report.ok == null || !report.status) {
+            console.error(JSON.stringify({ status, report }, null, 2));
+            process.exit(1);
+          }
+          JS
+
+      - name: Execute meaningful runtime path
+        if: ${{ matrix.full_proof }}
+        timeout-minutes: 30
+        shell: bash
+        run: |
+          ota run postgres:up --stream .
+          ota proof runtime --workflow local-postgres --ready-timeout 5m --json . > .ota/ci/proof-local-postgres.json
+          ota run postgres:reset --stream .
+          ota proof runtime --workflow local-postgres --ready-timeout 5m --json . > .ota/ci/proof-local-postgres-after-reset.json
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ota-contract-matrix-${{ matrix.name }}
+          include-hidden-files: true
+          path: .ota/ci/
+          retention-days: 7

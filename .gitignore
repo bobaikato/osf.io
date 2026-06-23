@@ -204,3 +204,6 @@ ssl/
 
 # pyenv
 .python-version
+.ota/state/
+.ota/receipts/
+.ota/proof/
