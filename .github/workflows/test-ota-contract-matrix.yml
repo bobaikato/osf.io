@@ -167,15 +167,15 @@ jobs:
             ota run "$task" --dry-run --json . > ".ota/ci/run-${slug}.json"
             status=$?
             set -e
-            STATUS="$status" REPORT_PATH=".ota/ci/run-${slug}.json" node - <<'JS'
-            const fs = require('fs');
-            const report = JSON.parse(fs.readFileSync(process.env.REPORT_PATH, 'utf8'));
-            const status = Number.parseInt(process.env.STATUS || '0', 10);
-            if (![0, 1].includes(status) || report.dry_run !== true || report.ok == null) {
-              console.error(JSON.stringify({ status, report }, null, 2));
-              process.exit(1);
-            }
-            JS
+            STATUS="$status" REPORT_PATH=".ota/ci/run-${slug}.json" node -e '
+              const fs = require("fs");
+              const report = JSON.parse(fs.readFileSync(process.env.REPORT_PATH, "utf8"));
+              const status = Number.parseInt(process.env.STATUS || "0", 10);
+              if (![0, 1].includes(status) || report.dry_run !== true || report.ok == null) {
+                console.error(JSON.stringify({ status, report }, null, 2));
+                process.exit(1);
+              }
+            '
           done < .ota/ci/task-names.txt
 
       - name: Dry-run workflow
