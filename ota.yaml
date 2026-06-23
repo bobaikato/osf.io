@@ -1,0 +1,129 @@
+# 
+#                █████
+#               ░░███
+#       ██████  ███████    ██████
+#      ███░░███░░░███░    ░░░░░███
+#     ░███ ░███  ░███      ███████
+#     ░███ ░███  ░███ ███ ███░░███
+#     ░░██████   ░░█████ ░░████████
+#      ░░░░░░     ░░░░░   ░░░░░░░░
+#
+#   Copyright (C) 2026 — 2026, Ota. All Rights Reserved.
+#
+#   DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+#
+#   Licensed under the Apache License, Version 2.0. See LICENSE for the full license text.
+#   You may not use this file except in compliance with that License.
+#   Unless required by applicable law or agreed to in writing, software distributed under the
+#   License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+#   either express or implied. See the License for the specific language governing permissions
+#   and limitations under the License.
+#
+#   If you need additional information or have any questions, please email: os@ota.run
+
+version: 1
+project:
+  name: osf.io
+  description: >
+    Narrow pressure slice for OSF's documented local Docker Compose Postgres path and destructive
+    Postgres volume reset workflow.
+execution:
+  default_context: host
+  contexts:
+    host:
+      backend: native
+      requirements:
+        tools:
+          docker: "*"
+services:
+  postgres:
+    manager:
+      kind: compose
+      name: osf.io
+      file: docker-compose.yml
+      service: postgres
+    endpoints:
+      host:
+        address: 127.0.0.1
+        port: 5432
+    readiness:
+      kind: tcp
+      from: host
+tasks:
+  postgres:up:
+    context: host
+    description: Start the documented local Postgres Compose service
+    notes: Mirrors the README Docker Compose path for bringing up the local Postgres container.
+    command:
+      exe: docker
+      args:
+        - compose
+        - up
+        - -d
+        - postgres
+    requirements:
+      tools:
+        docker: "*"
+    effects:
+      external_state:
+        - docker
+        - postgres
+  postgres:reset:
+    context: host
+    description: Reset the documented local Postgres data volume and restart the Compose service
+    notes: >
+      Mirrors the README Docker Compose volume reset path: stop postgres, remove the postgres
+      container, remove the `osfio_postgres_data_vol` volume, then start postgres again.
+    action:
+      kind: reset_compose_service_volume
+      service: postgres
+      volume: osfio_postgres_data_vol
+      compose:
+        files:
+          - docker-compose.yml
+        project_name: osf.io
+    requirements:
+      tools:
+        docker: "*"
+    effects:
+      external_state:
+        - docker
+        - postgres
+    safe_for_agent: false
+  db:reset:
+    context: host
+    description: Run the documented Django database reset command inside the web container
+    notes: >
+      Mirrors the README command `docker compose run --rm web python3 manage.py reset_db
+      --noinput`.
+    command:
+      exe: docker
+      args:
+        - compose
+        - run
+        - --rm
+        - web
+        - python3
+        - manage.py
+        - reset_db
+        - --noinput
+    depends_on:
+      - postgres:up
+    requirements:
+      tools:
+        docker: "*"
+    effects:
+      external_state:
+        - docker
+        - postgres
+    safe_for_agent: false
+workflows:
+  default: local-postgres
+  local-postgres:
+    intent: local_development
+    description: Documented local Postgres startup and reset slice for OSF Docker development
+    prepare:
+      task: postgres:up
+metadata:
+  ota:
+    minimum_version: "1.6.22"
