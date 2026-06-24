@@ -39,7 +39,7 @@ services:
   postgres:
     manager:
       kind: compose
-      name: osf.io
+      name: osfio
       file: docker-compose.yml
       service: postgres
     endpoints:
@@ -81,7 +81,7 @@ tasks:
       compose:
         files:
           - docker-compose.yml
-        project_name: osf.io
+        project_name: osfio
     requirements:
       tools:
         docker: "*"
