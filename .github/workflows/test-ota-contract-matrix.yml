@@ -26,15 +26,6 @@ name: 'Test: Ota contract matrix'
 
 on:
   workflow_dispatch:
-    inputs:
-      ota_repository:
-        description: Ota source repository to build for this matrix run
-        required: false
-        default: ota-run/ota
-      ota_ref:
-        description: Exact Ota git revision to build for this matrix run
-        required: false
-        default: 351b7336ca22ab3a8e66c110deadcce4b0666f47
   pull_request:
     paths:
       - 'ota.yaml'
@@ -86,15 +77,39 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Install ota from source
-        uses: ota-run/ota/.github/actions/install-ota-from-source@351b7336ca22ab3a8e66c110deadcce4b0666f47
+      - name: Set up ota
+        uses: ota-run/setup@v1.0.8
         with:
-          repository: ${{ github.event.inputs.ota_repository || 'ota-run/ota' }}
-          ref: ${{ github.event.inputs.ota_ref || '351b7336ca22ab3a8e66c110deadcce4b0666f47' }}
+          source: contract
+          contract-path: ota.yaml
 
-      - name: Verify ota install revision
+      - name: Assert ota minimum version from contract
         shell: bash
-        run: ota --version
+        run: |
+          ota --version | tee ota-version.txt
+          required="$(awk -F'\"' '/minimum_version:/{print $2; exit}' ota.yaml)"
+          if [ -z "$required" ]; then
+            echo "missing metadata.ota.minimum_version in ota.yaml"
+            exit 1
+          fi
+          python3 - "$required" "$(cat ota-version.txt)" <<'PY'
+          import re
+          import sys
+
+          required = sys.argv[1]
+          actual_text = sys.argv[2]
+
+          def parse(version: str) -> tuple[int, int, int]:
+              match = re.search(r"(\d+)\.(\d+)\.(\d+)", version)
+              if not match:
+                  raise SystemExit(f"unable to parse version from {version!r}")
+              return tuple(int(part) for part in match.groups())
+
+          if parse(actual_text) < parse(required):
+              raise SystemExit(
+                  f"installed ota version {actual_text.strip()} is older than required {required}"
+              )
+          PY
 
       - name: Validate contract
         shell: bash

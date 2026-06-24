@@ -124,6 +124,25 @@ workflows:
     description: Documented local Postgres startup and reset slice for OSF Docker development
     prepare:
       task: postgres:up
+agent:
+  posture: readiness_strict
+  entrypoint: postgres:up
+  default_task: postgres:up
+  protected_paths:
+    - .github/workflows
+    - docker-compose.yml
+    - ota.yaml
+  bootstrap:
+    ota:
+      note: Install ota only when missing so contributors and agents can use the readiness workflows declared here.
+      source:
+        kind: branch
+        branch: 1.6.22-implementation
+  notes: |
+    This contract intentionally scopes OSF to the documented local Docker Postgres startup and reset slice.
+    Review `ota tasks --use` before execution; the modeled tasks mutate Docker or database state and are
+    not declared agent-safe by default.
+    Use `ota up --workflow local-postgres` for the documented startup path.
 metadata:
   ota:
     minimum_version: "1.6.22"
