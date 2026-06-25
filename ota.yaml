@@ -25,8 +25,9 @@ version: 1
 project:
   name: osf.io
   description: >
-    Narrow pressure slice for OSF's documented local Docker Compose Postgres path and destructive
-    Postgres volume reset workflow.
+    Pressure slice for OSF's documented local Docker Compose development path, including staged
+    dependency hydration, core infra startup, detached app/service startup, and destructive
+    Postgres reset workflow.
 execution:
   default_context: host
   contexts:
@@ -50,16 +51,129 @@ services:
       kind: tcp
       from: host
 tasks:
+  requirements:up:
+    context: host
+    description: Run the documented requirements hydration containers for the local Docker stack
+    notes: >
+      Mirrors the README Docker Compose path `docker compose up requirements mfr_requirements
+      wb_requirements gv_requirements`.
+    compose:
+      kind: up
+      services:
+        - requirements
+        - mfr_requirements
+        - wb_requirements
+        - gv_requirements
+    requirements:
+      tools:
+        docker: "*"
+    effects:
+      network: true
+      network_kind: dependency_hydration
+      external_state:
+        - docker
+    safe_for_agent: false
+  core:up:
+    context: host
+    description: Start the documented core infra services for the OSF Docker stack
+    notes: >
+      Mirrors the README Docker Compose path `docker compose up -d elasticsearch postgres mongo
+      rabbitmq`.
+    compose:
+      kind: up
+      detach: true
+      services:
+        - elasticsearch
+        - postgres
+        - mongo
+        - rabbitmq
+    depends_on:
+      - requirements:up
+    requirements:
+      tools:
+        docker: "*"
+    effects:
+      external_state:
+        - docker
+        - postgres
+        - rabbitmq
+        - elasticsearch
+    safe_for_agent: false
+  assets:up:
+    context: host
+    description: Start the documented detached asset watcher containers
+    notes: >
+      Mirrors the README Docker Compose path `docker compose up -d assets admin_assets`. The docs
+      also recommend clearing local `node_modules` before first startup; that housekeeping remains
+      repo truth outside the current Ota contract surface.
+    compose:
+      kind: up
+      detach: true
+      services:
+        - assets
+        - admin_assets
+    depends_on:
+      - requirements:up
+    requirements:
+      tools:
+        docker: "*"
+    effects:
+      external_state:
+        - docker
+    safe_for_agent: false
+  supporting:up:
+    context: host
+    description: Start the documented supporting detached app services
+    notes: >
+      Mirrors the README Docker Compose path `docker compose up -d mfr wb fakecas sharejs`.
+    compose:
+      kind: up
+      detach: true
+      services:
+        - mfr
+        - wb
+        - fakecas
+        - sharejs
+    depends_on:
+      - core:up
+    requirements:
+      tools:
+        docker: "*"
+    effects:
+      external_state:
+        - docker
+    safe_for_agent: false
+  db:migrate:
+    context: host
+    description: Run the documented OSF Django migration command inside a disposable web container
+    notes: >
+      Mirrors the README command `docker compose run --rm web python3 manage.py migrate`.
+    compose:
+      kind: run
+      service: web
+      rm: true
+      exe: python3
+      args:
+        - manage.py
+        - migrate
+    depends_on:
+      - core:up
+    requirements:
+      tools:
+        docker: "*"
+    effects:
+      external_state:
+        - docker
+        - postgres
+    safe_for_agent: false
   postgres:up:
     context: host
     description: Start the documented local Postgres Compose service
     notes: Mirrors the README Docker Compose path for bringing up the local Postgres container.
-    command:
-      exe: docker
-      args:
-        - compose
-        - up
-        - -d
+    compose:
+      kind: up
+      detach: true
+      services:
         - postgres
     requirements:
       tools:
@@ -96,14 +210,12 @@ tasks:
     notes: >
       Mirrors the README command `docker compose run --rm web python3 manage.py reset_db
       --noinput`.
-    command:
-      exe: docker
+    compose:
+      kind: run
+      service: web
+      rm: true
+      exe: python3
       args:
-        - compose
-        - run
-        - --rm
-        - web
-        - python3
         - manage.py
         - reset_db
         - --noinput
@@ -117,6 +229,64 @@ tasks:
         - docker
         - postgres
     safe_for_agent: false
+  app:up:
+    context: host
+    description: Start the documented detached OSF app and worker services
+    notes: >
+      Mirrors the README Docker Compose path `docker compose up -d worker web api admin preprints
+      gv`.
+    compose:
+      kind: up
+      detach: true
+      services:
+        - worker
+        - web
+        - api
+        - admin
+        - preprints
+        - gv
+    depends_on:
+      - supporting:up
+      - assets:up
+    requirements:
+      tools:
+        docker: "*"
+    effects:
+      external_state:
+        - docker
+        - postgres
+        - rabbitmq
+        - elasticsearch
+    runtime:
+      kind: service
+      readiness:
+        kind: http
+        listener: web:http
+        path: /
+        interval: 5s
+        timeout: 5s
+        retries: 60
+        start_period: 15s
+      listeners:
+        web:http:
+          protocol: http
+          bind:
+            address: 0.0.0.0
+            port:
+              mode: fixed
+              value: 5000
+          project:
+            host:
+              address: 127.0.0.1
+              port:
+                mode: fixed
+                value: 5000
+              path: /
+              primary: true
+            publication:
+              compose:
+                service: web
+    safe_for_agent: false
 workflows:
   default: local-postgres
   local-postgres:
@@ -124,6 +294,14 @@ workflows:
     description: Documented local Postgres startup and reset slice for OSF Docker development
     prepare:
       task: postgres:up
+  local-docker:
+    intent: local_development
+    description: >
+      Documented staged OSF Docker Compose startup path covering requirements hydration, core infra,
+      detached asset watchers, supporting services, and the detached app stack rooted at the web
+      service on localhost:5000.
+    run:
+      task: app:up
 agent:
   posture: readiness_strict
   entrypoint: postgres:up
@@ -136,13 +314,15 @@ agent:
     ota:
       note: Install ota only when missing so contributors and agents can use the readiness workflows declared here.
       source:
-        kind: git_rev
-        rev: f78c7f1cd4fdae0c92be06d9834e2b3c9957beee
+        kind: branch
+        branch: 1.6.22-implementation
   notes: |
-    This contract intentionally scopes OSF to the documented local Docker Postgres startup and reset slice.
+    This contract intentionally scopes OSF to the documented local Docker Compose development path and
+    the narrower Postgres maintenance slice, not every optional OSF Docker workflow.
     Review `ota tasks --use` before execution; the modeled tasks mutate Docker or database state and are
     not declared agent-safe by default.
     Use `ota up --workflow local-postgres` for the documented startup path.
+    Use `ota up --workflow local-docker` for the staged full local Docker Compose startup path.
 metadata:
   ota:
     minimum_version: "1.6.22"

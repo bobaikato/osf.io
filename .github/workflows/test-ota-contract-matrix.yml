@@ -145,6 +145,8 @@ jobs:
           if [ "${{ matrix.full_proof }}" = "true" ]; then
             ota doctor --workflow local-postgres .
           fi
+          ota doctor --workflow local-docker --json . > .ota/ci/doctor-local-docker.json
+          ota doctor --workflow local-docker .
 
       - name: List task and workflow surfaces
         shell: bash
@@ -152,6 +154,7 @@ jobs:
           ota tasks --use .
           ota tasks --safe --use .
           ota tasks --workflow local-postgres .
+          ota tasks --workflow local-docker .
           ota workflows .
 
       - name: Export execution topology
@@ -203,6 +206,19 @@ jobs:
           STATUS="$status" node - <<'JS'
           const fs = require('fs');
           const report = JSON.parse(fs.readFileSync('.ota/ci/up-local-postgres-dry-run.json', 'utf8'));
+          const status = Number.parseInt(process.env.STATUS || '0', 10);
+          if (![0, 1].includes(status) || report.dry_run !== true || report.ok == null || !report.status) {
+            console.error(JSON.stringify({ status, report }, null, 2));
+            process.exit(1);
+          }
+          JS
+          set +e
+          ota up --workflow local-docker --dry-run --json . > .ota/ci/up-local-docker-dry-run.json
+          status=$?
+          set -e
+          STATUS="$status" node - <<'JS'
+          const fs = require('fs');
+          const report = JSON.parse(fs.readFileSync('.ota/ci/up-local-docker-dry-run.json', 'utf8'));
           const status = Number.parseInt(process.env.STATUS || '0', 10);
           if (![0, 1].includes(status) || report.dry_run !== true || report.ok == null || !report.status) {
             console.error(JSON.stringify({ status, report }, null, 2));
