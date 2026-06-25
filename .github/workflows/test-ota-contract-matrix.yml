@@ -145,8 +145,30 @@ jobs:
           if [ "${{ matrix.full_proof }}" = "true" ]; then
             ota doctor --workflow local-postgres .
           fi
+          set +e
           ota doctor --workflow local-docker --json . > .ota/ci/doctor-local-docker.json
-          ota doctor --workflow local-docker .
+          status=$?
+          set -e
+          STATUS="$status" FULL_PROOF="${{ matrix.full_proof }}" node - <<'JS'
+          const fs = require('fs');
+          const report = JSON.parse(fs.readFileSync('.ota/ci/doctor-local-docker.json', 'utf8'));
+          const status = Number.parseInt(process.env.STATUS || '0', 10);
+          const fullProof = process.env.FULL_PROOF === 'true';
+          if (fullProof && status !== 0) {
+            console.error(JSON.stringify(report, null, 2));
+            process.exit(1);
+          }
+          if (!fullProof && status !== 0) {
+            const code = report.summary?.primary_blocker?.code || '';
+            if (code !== 'OTA_TOOL_MISSING') {
+              console.error(JSON.stringify(report, null, 2));
+              process.exit(1);
+            }
+          }
+          JS
+          if [ "${{ matrix.full_proof }}" = "true" ]; then
+            ota doctor --workflow local-docker .
+          fi
 
       - name: List task and workflow surfaces
         shell: bash
