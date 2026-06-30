@@ -41,7 +41,9 @@ services:
     manager:
       kind: compose
       name: osfio
-      file: docker-compose.yml
+      files:
+        - docker-compose.yml
+        - docker-compose.override.yml
       service: postgres
     endpoints:
       host:
@@ -51,12 +53,78 @@ services:
       kind: tcp
       from: host
 tasks:
+  setup:compose:override:
+    context: host
+    description: Materialize the documented local Docker Compose override file when it is missing
+    notes: >
+      Mirrors the README application-settings step `cp ./docker-compose-dist.override.yml
+      ./docker-compose.override.yml` so local compose runs use the same documented file stack.
+    action:
+      kind: copy_if_missing
+      from: docker-compose-dist.override.yml
+      to: docker-compose.override.yml
+    safe_for_agent: true
+  images:pull:
+    context: host
+    description: Pull the documented local Docker Compose images before update-time requirements and migrations
+    notes: >
+      Mirrors the README update path `docker compose pull` after syncing the working tree and
+      before rerunning requirements and migrations.
+    prepare:
+      kind: dependency_hydration
+      medium: container_images
+      source:
+        kind: docker_compose
+        cwd: .
+        files:
+          - docker-compose.yml
+          - docker-compose.override.yml
+      targets:
+        - elasticsearch
+        - postgres
+        - mongo
+        - rabbitmq
+        - mfr_requirements
+        - mfr
+        - unoconv
+        - wb_requirements
+        - wb
+        - wb_worker
+        - fakecas
+        - requirements
+        - assets
+        - admin_assets
+        - worker
+        - web
+        - api
+        - admin
+        - preprints
+        - gv_requirements
+        - gv
+        - sharejs
+    depends_on:
+      - setup:compose:override
+    requirements:
+      tools:
+        docker: "*"
+    effects:
+      network: true
+      network_kind: dependency_hydration
+      external_state:
+        - docker
+    safe_for_agent: false
   requirements:up:
     context: host
     description: Run the documented requirements hydration containers for the local Docker stack
     notes: >
       Mirrors the README Docker Compose path `docker compose up requirements mfr_requirements
       wb_requirements gv_requirements`.
+    adapter_inputs:
+      overlays:
+        compose:
+          files:
+            - docker-compose.yml
+            - docker-compose.override.yml
     compose:
       kind: up
       services:
@@ -64,6 +132,8 @@ tasks:
         - mfr_requirements
         - wb_requirements
         - gv_requirements
+    depends_on:
+      - setup:compose:override
     requirements:
       tools:
         docker: "*"
@@ -79,6 +149,12 @@ tasks:
     notes: >
       Mirrors the README Docker Compose path `docker compose up -d elasticsearch postgres mongo
       rabbitmq`.
+    adapter_inputs:
+      overlays:
+        compose:
+          files:
+            - docker-compose.yml
+            - docker-compose.override.yml
     compose:
       kind: up
       detach: true
@@ -106,6 +182,12 @@ tasks:
       Mirrors the README Docker Compose path `docker compose up -d assets admin_assets`. The docs
       also recommend clearing local `node_modules` before first startup; that housekeeping remains
       repo truth outside the current Ota contract surface.
+    adapter_inputs:
+      overlays:
+        compose:
+          files:
+            - docker-compose.yml
+            - docker-compose.override.yml
     compose:
       kind: up
       detach: true
@@ -126,6 +208,12 @@ tasks:
     description: Start the documented supporting detached app services
     notes: >
       Mirrors the README Docker Compose path `docker compose up -d mfr wb fakecas sharejs`.
+    adapter_inputs:
+      overlays:
+        compose:
+          files:
+            - docker-compose.yml
+            - docker-compose.override.yml
     compose:
       kind: up
       detach: true
@@ -148,6 +236,12 @@ tasks:
     description: Run the documented OSF Django migration command inside a disposable web container
     notes: >
       Mirrors the README command `docker compose run --rm web python3 manage.py migrate`.
+    adapter_inputs:
+      overlays:
+        compose:
+          files:
+            - docker-compose.yml
+            - docker-compose.override.yml
     compose:
       kind: run
       service: web
@@ -170,11 +264,19 @@ tasks:
     context: host
     description: Start the documented local Postgres Compose service
     notes: Mirrors the README Docker Compose path for bringing up the local Postgres container.
+    adapter_inputs:
+      overlays:
+        compose:
+          files:
+            - docker-compose.yml
+            - docker-compose.override.yml
     compose:
       kind: up
       detach: true
       services:
         - postgres
+    depends_on:
+      - setup:compose:override
     requirements:
       tools:
         docker: "*"
@@ -195,7 +297,10 @@ tasks:
       compose:
         files:
           - docker-compose.yml
+          - docker-compose.override.yml
         project_name: osfio
+    depends_on:
+      - setup:compose:override
     requirements:
       tools:
         docker: "*"
@@ -210,6 +315,12 @@ tasks:
     notes: >
       Mirrors the README command `docker compose run --rm web python3 manage.py reset_db
       --noinput`.
+    adapter_inputs:
+      overlays:
+        compose:
+          files:
+            - docker-compose.yml
+            - docker-compose.override.yml
     compose:
       kind: run
       service: web
@@ -235,6 +346,12 @@ tasks:
     notes: >
       Mirrors the README Docker Compose path `docker compose up -d worker web api admin preprints
       gv`.
+    adapter_inputs:
+      overlays:
+        compose:
+          files:
+            - docker-compose.yml
+            - docker-compose.override.yml
     compose:
       kind: up
       detach: true
@@ -315,7 +432,7 @@ agent:
       note: Install ota only when missing so contributors and agents can use the readiness workflows declared here.
       source:
         kind: branch
-        branch: 1.6.22-implementation
+        branch: 1.6.23-implementation
   notes: |
     This contract intentionally scopes OSF to the documented local Docker Compose development path and
     the narrower Postgres maintenance slice, not every optional OSF Docker workflow.
