@@ -33,9 +33,6 @@ execution:
   contexts:
     host:
       backend: native
-      requirements:
-        tools:
-          docker: "*"
 services:
   postgres:
     manager:
