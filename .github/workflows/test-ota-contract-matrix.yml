@@ -188,6 +188,10 @@ jobs:
             printf '%s\n' '{"ok":false,"skipped":true,"reason":"ota execution topology is unavailable in this build"}' > .ota/ci/execution-topology.json
           fi
 
+      - name: Materialize compose override truth
+        shell: bash
+        run: ota run setup:compose:override .
+
       - name: Dry-run public task surface
         shell: bash
         run: |
