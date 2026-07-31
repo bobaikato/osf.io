@@ -204,6 +204,7 @@ ssl/
 
 # pyenv
 .python-version
+.ota/contracts/
 .ota/state/
 .ota/receipts/
 .ota/proof/

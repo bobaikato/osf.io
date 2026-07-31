@@ -68,22 +68,22 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
 
       - name: Setup Node.js 24
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24'
 
       - name: Set up ota
-        uses: ota-run/setup@v1.0.8
+        uses: ota-run/setup@493cba84bf7f7c11c9e8e996d832d93a89c62184 # v1.0.8
         with:
           source: contract
           contract-path: ota.yaml
 
-      - name: Assert ota minimum version from contract
+      - name: Verify contracted Ota release
         shell: bash
         run: |
           ota --version | tee ota-version.txt
@@ -105,9 +105,9 @@ jobs:
                   raise SystemExit(f"unable to parse version from {version!r}")
               return tuple(int(part) for part in match.groups())
 
-          if parse(actual_text) < parse(required):
+          if parse(actual_text) != parse(required):
               raise SystemExit(
-                  f"installed ota version {actual_text.strip()} is older than required {required}"
+                  f"installed ota version {actual_text.strip()} does not match required {required}"
               )
           PY
 
@@ -262,11 +262,16 @@ jobs:
           ota run postgres:reset --stream .
           ota proof runtime --workflow local-postgres --ready-timeout 5m --json . > .ota/ci/proof-local-postgres-after-reset.json
 
-      - name: Upload failure artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
+      - name: Upload Ota matrix evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ota-contract-matrix-${{ matrix.name }}
           include-hidden-files: true
-          path: .ota/ci/
+          path: |
+            ota-version.txt
+            .ota/ci/
+            .ota/receipts/
+            .ota/proof/
           retention-days: 7
+          if-no-files-found: error

@@ -83,7 +83,7 @@ tasks:
         docker: "*"
     effects:
       network: true
-      network_kind: dependency_hydration
+      network_kind: container_image_hydration
       external_state:
         - docker
     safe_for_agent: false
@@ -403,10 +403,10 @@ agent:
     - ota.yaml
   bootstrap:
     ota:
-      note: Install ota only when missing so contributors and agents can use the readiness workflows declared here.
+      note: Install released Ota v1.6.25 only when missing so contributors and agents can use the readiness workflows declared here.
       source:
-        kind: branch
-        branch: 1.6.23-implementation
+        kind: version
+        version: v1.6.25
   notes: |
     This contract intentionally scopes OSF to the documented local Docker Compose development path and
     the narrower Postgres maintenance slice, not every optional OSF Docker workflow.
@@ -416,4 +416,4 @@ agent:
     Use `ota up --workflow local-docker` for the staged full local Docker Compose startup path.
 metadata:
   ota:
-    minimum_version: "1.6.22"
+    minimum_version: "1.6.25"
